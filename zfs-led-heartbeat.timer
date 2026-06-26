@@ -1,0 +1,11 @@
+# zfs-led-heartbeat.timer
+[Unit]
+Description=Send ZFS health heartbeat to the Arduino periodically
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=5
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

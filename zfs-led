@@ -1,0 +1,3 @@
+ZFS_LED_POOL=tank
+ZFS_LED_PORT=/dev/serial/by-id/usb-Arduino_LLC_Arduino_Micro-if00
+ZFS_LED_BAUD=9600

@@ -1,0 +1,9 @@
+# zfs-led-heartbeat.service
+[Unit]
+Description=ZFS LED heartbeat to Arduino
+After=zfs.target zfs-import.target zfs-mount.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/zfs-led
+ExecStart=/opt/zfsmonitor/bin/python3 /opt/zfsmonitor/zfsparser.py
