@@ -1,0 +1,13 @@
+[Unit]
+Description=ZFS pool health LED indicator (Arduino)
+After=zfs.target
+Wants=zfs.target
+
+[Service]
+# Replace YOUR-ARDUINO-ID with the name shown by: ls -l /dev/serial/by-id/
+ExecStart=/opt/zfs-led-monitor/venv/bin/python /opt/zfs-led-monitor/zfs_status_sender.py --port /dev/serial/by-id/YOUR-ARDUINO-ID --interval 10
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
