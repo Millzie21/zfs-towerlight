@@ -62,7 +62,7 @@ On the ZFS host, download the repo with either git or curl.
 **With git:**
 
 ```bash
-git clone https://github.com/Millzie21/zfs-led-monitor.git
+git clone https://github.com/Millzie21/zfs-towerlight.git
 cd zfs-led-monitor
 ```
 
