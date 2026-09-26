@@ -1,4 +1,4 @@
-# ZFS LED Monitor
+# ZFS Towerlight
 
 An Arduino with three LEDs that shows the health of your ZFS pools at a glance. The LEDs update within a second of any ZFS event, thanks to a ZED zedlet, with a heartbeat check every 10 seconds as a fallback.
 
@@ -17,16 +17,14 @@ When you have several pools, the LEDs show the worst state among them.
 - **`all-led-monitor.sh`** is a ZED zedlet. On every ZFS event it signals the service to re-check immediately.
 - **The Arduino sketch** lights the matching LED. If it hears nothing for 30 seconds, it cycles all three LEDs so you know the status is stale.
 
-## Repository layout
+## Files
 
-```
-zfs-led-monitor/
-├── README.md
-├── arduino/zfs_monitor/zfs_monitor.ino   # Arduino sketch
-├── host/zfs_status_sender.py             # Status sender (runs from a venv)
-├── systemd/zfs-led-monitor.service       # systemd unit
-└── zed/all-led-monitor.sh                # ZED zedlet
-```
+| File | Purpose | Where it goes |
+| --- | --- | --- |
+| `zfs_status_sender.py` | Status sender | Stays in `~/zfs-towerlight`, next to its venv |
+| `zfs-led-monitor.service` | systemd unit | `/etc/systemd/system/` |
+| `all-led-monitor.sh` | ZED zedlet | `/etc/zfs/zed.d/` |
+| `zfs_monitor.ino` | Arduino sketch | Flashed to the Arduino |
 
 ## Requirements
 
@@ -55,29 +53,31 @@ Wire each LED the same way: Arduino pin → 220 Ω resistor → LED anode (long 
 
 ## Installation
 
-### 1. Download the files
+Cloning the repo puts all the files in `~/zfs-towerlight`. The Python script stays there, and its virtual environment is created alongside it in `~/zfs-towerlight/venv`. The service file and the zedlet are copied to their system locations in steps 5 and 6.
 
-On the ZFS host, download the repo with either git or curl.
+They're copied rather than moved so the clone stays complete, which keeps `git pull` working when you update. Run the commands below as your normal user; they use `sudo` only where root is needed.
 
-**With git:**
+### 1. Clone the repo
 
-```bash
-git clone https://github.com/Millzie21/zfs-towerlight.git
-cd zfs-led-monitor
-```
-
-**Without git:**
+On the ZFS host, clone the repo into your home directory:
 
 ```bash
-curl -L https://github.com/Millzie21/zfs-led-monitor/archive/refs/heads/main.tar.gz | tar xz
-cd zfs-led-monitor-main
+git clone https://github.com/Millzie21/zfs-towerlight.git ~/zfs-towerlight
+cd ~/zfs-towerlight
 ```
 
-Run all the remaining host commands from inside this folder.
+If `git` isn't installed, install it first with `sudo apt install git` (Debian, Ubuntu and Proxmox).
+
+> [!NOTE]
+> If the repo is private, git asks for a username and password. GitHub no longer accepts account passwords here, so use a [personal access token](https://github.com/settings/tokens) as the password.
+
+Run all the remaining host commands from inside `~/zfs-towerlight`.
 
 ### 2. Flash the Arduino
 
-On the computer with the Arduino IDE, download the repo from GitHub (**Code → Download ZIP**) and extract it. Open `arduino/zfs_monitor/zfs_monitor.ino` in the Arduino IDE and upload it to the board.
+On the computer with the Arduino IDE, download the repo from GitHub (**Code → Download ZIP**) and extract it, or copy `zfs_monitor.ino` over from the clone. Open `zfs_monitor.ino` in the Arduino IDE.
+
+The IDE requires each sketch to be in a folder with the same name, so it will offer to create a `zfs_monitor` folder and move the file into it. Click **OK**, then upload the sketch to the board.
 
 On power-up the LEDs light green, yellow, red once as a lamp test, then cycle until the host sends its first status.
 
@@ -102,9 +102,7 @@ Note the full name before `->`. You'll need it in steps 4 and 5.
 > [!NOTE]
 > Clone boards with a CH340 chip often show a generic name like `usb-1a86_USB2.0-Serial-if00-port0`. That's fine with one board. With two identical clones, use `/dev/serial/by-path/` instead.
 
-### 4. Create the virtual environment and install the script
-
-The script and its venv live in `/opt/zfs-led-monitor/`, owned by root, because the service runs as root to query `zpool`.
+### 4. Create the virtual environment
 
 Install the venv module. This is only needed on Debian, Ubuntu and Proxmox; most other distros include it already:
 
@@ -112,21 +110,19 @@ Install the venv module. This is only needed on Debian, Ubuntu and Proxmox; most
 sudo apt install python3-venv
 ```
 
-Create the venv, install pyserial into it, and copy the script into place:
+Create the venv inside the repo folder and install pyserial into it. No `sudo` is needed here:
 
 ```bash
-sudo mkdir -p /opt/zfs-led-monitor
-sudo python3 -m venv /opt/zfs-led-monitor/venv
-sudo /opt/zfs-led-monitor/venv/bin/pip install pyserial
-sudo install -m 755 host/zfs_status_sender.py /opt/zfs-led-monitor/
+python3 -m venv ~/zfs-towerlight/venv
+~/zfs-towerlight/venv/bin/pip install pyserial
 ```
 
-You never need to activate the venv. The script's shebang and the service both call `/opt/zfs-led-monitor/venv/bin/python` directly.
+You never need to activate the venv. The service calls `~/zfs-towerlight/venv/bin/python` directly.
 
-Do a quick manual run with your port from step 3:
+Do a quick manual run with your port from step 3. This one needs `sudo`, because querying `zpool` and opening the serial port usually require root:
 
 ```bash
-sudo /opt/zfs-led-monitor/venv/bin/python /opt/zfs-led-monitor/zfs_status_sender.py \
+sudo ~/zfs-towerlight/venv/bin/python ~/zfs-towerlight/zfs_status_sender.py \
     --port /dev/serial/by-id/<your-arduino-id>
 ```
 
@@ -134,14 +130,27 @@ After about 2 seconds it prints `Connected to ...` and a status line, and the ma
 
 ### 5. Install the systemd service
 
-Copy the unit file into place and open it:
+Copy the service file from the clone to `/etc/systemd/system/` and open it:
 
 ```bash
-sudo cp systemd/zfs-led-monitor.service /etc/systemd/system/
+sudo cp zfs-led-monitor.service /etc/systemd/system/
 sudo nano /etc/systemd/system/zfs-led-monitor.service
 ```
 
-Replace `YOUR-ARDUINO-ID` in the `ExecStart` line with the name from step 3, then save. Enable and start the service:
+The `ExecStart` line has two placeholders to replace:
+
+- **`YOUR-USERNAME`** appears twice. Replace both with your username, so the paths point at your home directory. If you're not sure of the path, run `echo $HOME`.
+- **`YOUR-ARDUINO-ID`** is the serial port name from step 3.
+
+For example, for the user `alice`, the finished line looks like this:
+
+```ini
+ExecStart=/home/alice/zfs-towerlight/venv/bin/python /home/alice/zfs-towerlight/zfs_status_sender.py --port /dev/serial/by-id/usb-Arduino__www.arduino.cc__0043_75630313536351F0B1A1-if00 --interval 10
+```
+
+Save with Ctrl-O and Enter, then exit with Ctrl-X.
+
+Enable and start the service:
 
 ```bash
 sudo systemctl daemon-reload
@@ -151,15 +160,18 @@ systemctl status zfs-led-monitor
 
 You should see `active (running)`, and the green LED should light if your pools are healthy.
 
+> [!NOTE]
+> The service runs as root but executes files in your home directory. Anything that can write to your home folder could change the script and have it run as root. On a single-user home server that's usually an acceptable trade-off.
+
 ### 6. Install the ZED zedlet
 
 ```bash
-sudo install -o root -g root -m 755 zed/all-led-monitor.sh /etc/zfs/zed.d/
+sudo install -o root -g root -m 755 all-led-monitor.sh /etc/zfs/zed.d/
 sudo systemctl restart zfs-zed
 ```
 
 > [!IMPORTANT]
-> ZED silently skips zedlets that aren't owned by root or are writable by other users. The `install` command above sets both correctly.
+> ZED silently skips zedlets that aren't owned by root or are writable by other users, so the zedlet is copied to `/etc/zfs/zed.d/` rather than run from your home directory. The `install` command above sets the ownership and permissions correctly.
 
 Setup is complete. Run through [Testing](#testing) to confirm everything works.
 
@@ -174,7 +186,7 @@ Options are set on the `ExecStart` line in `/etc/systemd/system/zfs-led-monitor.
 | `--interval` | `10` | Seconds between heartbeat checks. Keep this below 30, or the Arduino starts cycling between checks |
 | `--baud` | `9600` | Must match `BAUD_RATE` in the sketch |
 
-After editing, reload and restart:
+Edit it with `sudo nano /etc/systemd/system/zfs-led-monitor.service`, then reload and restart:
 
 ```bash
 sudo systemctl daemon-reload
@@ -224,7 +236,7 @@ The log prints a line only when the colour changes, along with what triggered th
 5. **Red LED.** There's no safe way to force a real FAULTED pool, so send `R` directly. The service replaces it with the real state within 10 seconds.
 
     ```bash
-    echo R > /dev/serial/by-id/<your-arduino-id>
+    echo R | sudo tee /dev/serial/by-id/<your-arduino-id>
     ```
 
 6. **Clean up.**
@@ -239,34 +251,41 @@ The log prints a line only when the colour changes, along with what triggered th
 
 ## Updating
 
-**Update the script.** Get the latest files, copy the script into place and restart the service. Your service settings are kept, because the service file isn't touched.
+**Update the script.** The service runs the script straight from `~/zfs-towerlight`, so updating is just downloading the new files and restarting. The venv and your service settings are kept.
 
 ```bash
-git pull    # or re-download with curl as in step 1
-sudo install -m 755 host/zfs_status_sender.py /opt/zfs-led-monitor/
+cd ~/zfs-towerlight
+git pull
 sudo systemctl restart zfs-led-monitor
 ```
 
-**Update the zedlet.** Only needed if `zed/all-led-monitor.sh` changed:
+**Update the service file.** Only needed if `zfs-led-monitor.service` changed, because systemd uses its own copy in `/etc/systemd/system/`. Copy it over again and redo your edits from step 5. Copying overwrites the installed file, so note your `ExecStart` line first. Then:
 
 ```bash
-sudo install -o root -g root -m 755 zed/all-led-monitor.sh /etc/zfs/zed.d/
+sudo systemctl daemon-reload
+sudo systemctl restart zfs-led-monitor
+```
+
+**Update the zedlet.** Only needed if `all-led-monitor.sh` changed, because ZED runs its own copy in `/etc/zfs/zed.d/`:
+
+```bash
+sudo install -o root -g root -m 755 ~/zfs-towerlight/all-led-monitor.sh /etc/zfs/zed.d/
 sudo systemctl restart zfs-zed
 ```
 
 **Update pyserial.**
 
 ```bash
-sudo /opt/zfs-led-monitor/venv/bin/pip install --upgrade pyserial
+~/zfs-towerlight/venv/bin/pip install --upgrade pyserial
 sudo systemctl restart zfs-led-monitor
 ```
 
 **Rebuild the venv after a major Python upgrade.** A distro upgrade that changes the Python version (for example 3.11 to 3.12) can break the venv, and the service will fail to start. Recreate it:
 
 ```bash
-sudo rm -rf /opt/zfs-led-monitor/venv
-sudo python3 -m venv /opt/zfs-led-monitor/venv
-sudo /opt/zfs-led-monitor/venv/bin/pip install pyserial
+rm -rf ~/zfs-towerlight/venv
+python3 -m venv ~/zfs-towerlight/venv
+~/zfs-towerlight/venv/bin/pip install pyserial
 sudo systemctl restart zfs-led-monitor
 ```
 
@@ -286,8 +305,9 @@ Start with `journalctl -u zfs-led-monitor -n 50`; most problems show up there.
 | --- | --- | --- |
 | An LED never lights, even during the lamp test | LED in backwards or loose wiring | Long leg to the resistor side, short leg to GND |
 | LEDs keep cycling while the service is active | Wrong `--port`, or the Arduino IDE's Serial Monitor is holding the port | Look for `Serial error` in the log, check `ls -l /dev/serial/by-id/`, close the Serial Monitor |
-| Service fails with `No module named 'serial'` | `ExecStart` uses the system Python, or pyserial isn't in the venv | Check `ExecStart` starts with `/opt/zfs-led-monitor/venv/bin/python`; rerun the pip install from step 4 |
-| Service fails with `No such file or directory` for the venv Python | The venv is missing or broken, often after a Python upgrade | Rebuild the venv (see [Updating](#updating)) |
+| Service fails with `No such file or directory` | A placeholder is still in the service file, or the venv is missing | Check the `ExecStart` line has your real home path and port; recreate the venv if `~/zfs-towerlight/venv` is missing |
+| Service fails with `No module named 'serial'` | pyserial isn't installed in the venv | Rerun `~/zfs-towerlight/venv/bin/pip install pyserial` |
+| Service fails after a distro upgrade | Python version changed and broke the venv | Rebuild the venv (see [Updating](#updating)) |
 | Red LED with `zpool list failed` in the log | `zpool` can't run or isn't permitted | Run the manual command from step 4 with `sudo` to see the full error |
 | Changes take up to 10 seconds and the log says `heartbeat` | The zedlet isn't firing | Check it's owned by root with mode 755, restart `zfs-zed`, and watch `journalctl -u zfs-zed -f` while repeating test 3 |
 | Arduino IDE upload fails with the port busy | The service holds the serial port | Stop the service, upload, then start it again |
@@ -300,5 +320,5 @@ sudo rm /etc/systemd/system/zfs-led-monitor.service
 sudo systemctl daemon-reload
 sudo rm /etc/zfs/zed.d/all-led-monitor.sh
 sudo systemctl restart zfs-zed
-sudo rm -rf /opt/zfs-led-monitor
+rm -rf ~/zfs-towerlight
 ```
